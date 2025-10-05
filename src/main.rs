@@ -3,13 +3,14 @@ use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use http::Uri;
-use log::{debug, error};
+use log::{debug, error, info};
 use macaddr::MacAddr6;
 
 /// Wake‑on‑WAN command‑line interface
 #[derive(Parser, Debug)]
 #[command(name = "wakeonwan")]
 #[command(about = "Send Wake‑On‑LAN packets over a network.", long_about = None)]
+#[command(version = "0.1.1")]
 pub struct Args {
     /// Destination uri
     #[arg(short = 'i', long = "uri", default_value = "255.255.255.255")]
@@ -35,16 +36,9 @@ pub struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    env_logger::Builder::from_default_env()
-        .filter(
-            None,
-            if args.verbose {
-                log::LevelFilter::Debug
-            } else {
-                log::LevelFilter::Info
-            },
-        )
-        .init();
+    let env = env_logger::Env::default()
+        .filter_or("RUST_LOG", if args.verbose { "trace" } else { "off" });
+    env_logger::init_from_env(env);
 
     let host = args
         .host
@@ -83,7 +77,7 @@ pub fn resolve_destination(host: &str, port: u16) -> Result<SocketAddr> {
 
 pub fn send_magic_packets(src: UdpSocket, dest: SocketAddr, cfg: &Args) {
     for mac in &cfg.mac {
-        debug!("Sending magic packet to {} at {}", mac, dest);
+        info!("Sending magic packet to {} at {}", mac, dest);
 
         if cfg.dry_run {
             continue;
