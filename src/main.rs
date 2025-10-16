@@ -65,6 +65,27 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Resolves a hostname or IP address to a socket address.
+///
+/// This function accepts both IPv4 and IPv6 addresses, with or without brackets.
+/// It also performs DNS resolution for hostnames.
+///
+/// # Arguments
+///
+/// * `host` - The hostname or IP address to resolve (brackets are automatically stripped)
+/// * `port` - The port number to use
+///
+/// # Returns
+///
+/// Returns a `SocketAddr` on success, or an error if resolution fails.
+///
+/// # Examples
+///
+/// ```ignore
+/// let addr = resolve_destination("192.168.1.1", 9)?;
+/// let addr = resolve_destination("[::1]", 9)?;
+/// let addr = resolve_destination("my-host.local", 9)?;
+/// ```
 pub fn resolve_destination(host: &str, port: u16) -> Result<SocketAddr> {
     let host_clean = host.trim_start_matches('[').trim_end_matches(']');
 
@@ -75,6 +96,19 @@ pub fn resolve_destination(host: &str, port: u16) -> Result<SocketAddr> {
         .ok_or_else(|| anyhow!("No addresses found for {host}"))
 }
 
+/// Sends Wake-on-LAN magic packets to one or more MAC addresses.
+///
+/// # Arguments
+///
+/// * `src` - The UDP socket to send packets from
+/// * `dest` - The destination socket address (IP and port)
+/// * `cfg` - The command-line arguments containing MAC addresses and options
+///
+/// # Behavior
+///
+/// - Logs each packet send attempt
+/// - In dry-run mode, only logs without actually sending
+/// - Errors during send are logged but don't stop subsequent sends
 pub fn send_magic_packets(src: UdpSocket, dest: SocketAddr, cfg: &Args) {
     for mac in &cfg.mac {
         info!("Sending magic packet to {} at {}", mac, dest);
@@ -90,6 +124,28 @@ pub fn send_magic_packets(src: UdpSocket, dest: SocketAddr, cfg: &Args) {
     }
 }
 
+/// Constructs a Wake-on-LAN magic packet for the given MAC address.
+///
+/// A magic packet consists of:
+/// - 6 bytes of 0xFF (synchronization stream)
+/// - The target MAC address repeated 16 times (96 bytes)
+///
+/// Total packet size: 102 bytes
+///
+/// # Arguments
+///
+/// * `mac` - A 6-byte slice containing the MAC address
+///
+/// # Returns
+///
+/// A 102-byte array containing the magic packet
+///
+/// # Examples
+///
+/// ```ignore
+/// let mac = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+/// let packet = magic_packet(&mac);
+/// ```
 pub fn magic_packet(mac: &[u8]) -> [u8; 102] {
     let mut pkt = [0u8; 102];
     pkt[0..6].copy_from_slice(&[0xFF; 6]);
@@ -97,4 +153,67 @@ pub fn magic_packet(mac: &[u8]) -> [u8; 102] {
         pkt[6 + i * 6..12 + i * 6].copy_from_slice(mac);
     }
     pkt
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_magic_packet_structure() {
+        let mac = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55];
+        let packet = magic_packet(&mac);
+
+        // Verify packet length
+        assert_eq!(packet.len(), 102);
+
+        // Verify first 6 bytes are 0xFF (sync stream)
+        for i in 0..6 {
+            assert_eq!(packet[i], 0xFF, "Sync stream byte {} should be 0xFF", i);
+        }
+
+        // Verify MAC address is repeated 16 times
+        for i in 0..16 {
+            let offset = 6 + i * 6;
+            assert_eq!(
+                &packet[offset..offset + 6],
+                &mac,
+                "MAC repetition {} should match original MAC",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_resolve_destination_ipv4() {
+        let result = resolve_destination("127.0.0.1", 9);
+        assert!(result.is_ok());
+        let addr = result.unwrap();
+        assert_eq!(addr.port(), 9);
+        assert!(addr.is_ipv4());
+    }
+
+    #[test]
+    fn test_resolve_destination_ipv6() {
+        let result = resolve_destination("::1", 9);
+        assert!(result.is_ok());
+        let addr = result.unwrap();
+        assert_eq!(addr.port(), 9);
+        assert!(addr.is_ipv6());
+    }
+
+    #[test]
+    fn test_resolve_destination_with_brackets() {
+        let result = resolve_destination("[::1]", 9);
+        assert!(result.is_ok());
+        let addr = result.unwrap();
+        assert_eq!(addr.port(), 9);
+        assert!(addr.is_ipv6());
+    }
+
+    #[test]
+    fn test_resolve_destination_invalid() {
+        let result = resolve_destination("invalid.hostname.that.does.not.exist.local", 9);
+        assert!(result.is_err());
+    }
 }
