@@ -37,7 +37,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     let env = env_logger::Env::default()
-        .filter_or("RUST_LOG", if args.verbose { "trace" } else { "off" });
+        .filter_or("RUST_LOG", if args.verbose { "trace" } else { "error" });
     env_logger::init_from_env(env);
 
     let host = args
